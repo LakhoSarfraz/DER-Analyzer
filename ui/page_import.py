@@ -16,9 +16,9 @@ class ImportPage(ttk.Frame):
         header = ttk.Frame(layout)
         header.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(header, text="Step 1: Import or Paste Paragraphs", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT)
-        ttk.Button(header, text="Import Word Document (.docx)", command=self._on_import).pack(side=tk.RIGHT)
+        ttk.Button(header, text="Import Word Document (.docx / .doc)", command=self._on_import).pack(side=tk.RIGHT)
 
-        hint = ttk.Label(layout, text="Paste paragraphs below. Under 10 words are filtered. You can also drag-and-drop a .docx file.", foreground="#555")
+        hint = ttk.Label(layout, text="Paste paragraphs below. Under 10 words are filtered. You can also drag-and-drop a document.", foreground="#555")
         hint.pack(anchor=tk.W, pady=(0, 5))
 
         self.text_edit = tk.Text(layout, font=("Segoe UI", 10), wrap=tk.WORD)
@@ -40,29 +40,35 @@ class ImportPage(ttk.Frame):
 
     def _on_drop(self, event):
         path = event.data.strip('{}')
-        if path.lower().endswith(".docx"):
+        if path.lower().endswith((".docx", ".doc")):
             self._import_docx(path)
 
     def _on_import(self):
-        path = filedialog.askopenfilename(title="Select Word Document", filetypes=[("Word Documents", "*.docx")])
+        path = filedialog.askopenfilename(title="Select Document", filetypes=[("Word Documents", "*.docx *.doc")])
         if path: self._import_docx(path)
 
     def _import_docx(self, path):
         try:
-            paragraphs, stats = extract_paragraphs_from_docx(path)
+            items, stats = extract_paragraphs_from_docx(path)
         except Exception as e:
             messagebox.showerror("Import Error", str(e))
             return
-        if not paragraphs:
-            messagebox.showinfo("Empty", "No paragraphs with 10+ words found.")
+        if not items:
+            messagebox.showinfo("Empty", "No valid paragraphs or tables found.")
             return
+            
+        predictions = self.main.engine.classify_batch([i["text"] for i in items])
         
-        existing = self.text_edit.get("1.0", tk.END).strip()
-        combined = (existing + "\n" + "\n".join(paragraphs)).strip() if existing else "\n".join(paragraphs)
-        self.text_edit.delete("1.0", tk.END)
-        self.text_edit.insert("1.0", combined)
-        
-        self.main.status_label.config(text=f"Imported {stats['imported']} paragraph(s). Skipped: {stats['headings']} headings, {stats['lists']} list items, {stats['short']} short.")
+        # Merge parsed structure with predictions
+        for item, pred in zip(items, predictions):
+            item["category"] = "" if pred["is_uncertain"] else pred["category"]
+            item["confidence"] = pred["confidence"]
+            item["uncertain"] = pred["is_uncertain"]
+            item["top3"] = pred.get("top3", [])
+            
+        self.main.pages["review"].load_items(items)
+        self.main._show_page("review")
+        self.main.status_label.config(text=f"Imported {stats['imported']} block(s). Skipped: {stats['headings']} headings, {stats['short']} short.")
 
     def _on_classify(self):
         raw = self.text_edit.get("1.0", tk.END).strip()
@@ -76,12 +82,24 @@ class ImportPage(ttk.Frame):
             p = line.strip()
             if p and len(p.split()) >= 10 and p not in seen:
                 seen.add(p)
-                unique.append(p)
+                # Validate pasted text manually
+                from doc_parser import VALIDATION_RE
+                is_valid = bool(VALIDATION_RE.match(p))
+                unique.append({
+                    "type": "paragraph", "text": p, "display_text": p, "is_valid": is_valid, "obj": None
+                })
                 
         if not unique:
             messagebox.showwarning("No Valid", "No paragraphs meeting the 10-word minimum.")
             return
             
-        predictions = self.main.engine.classify_batch(unique)
-        self.main.pages["review"].load_predictions(predictions)
+        predictions = self.main.engine.classify_batch([i["text"] for i in unique])
+        
+        for item, pred in zip(unique, predictions):
+            item["category"] = "" if pred["is_uncertain"] else pred["category"]
+            item["confidence"] = pred["confidence"]
+            item["uncertain"] = pred["is_uncertain"]
+            item["top3"] = pred.get("top3", [])
+            
+        self.main.pages["review"].load_items(unique)
         self.main._show_page("review")
