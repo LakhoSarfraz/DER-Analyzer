@@ -36,7 +36,7 @@ class BackupsPage(ttk.Frame):
             
         for b in backups:
             size = b["size"] / 1024
-            self.tree.insert("", tk.END, values=(b["name"], f"{size:.1f} KB", "Click to Restore"), tags=(b["path"],))
+            self.tree.insert("", tk.END, values=(b["name"], f"{size:.1f} KB", "Double-click to Restore"), tags=(b["path"],))
             
         self.tree.bind("<Double-1>", self._restore)
 
