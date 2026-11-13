@@ -11,6 +11,10 @@ class SettingsPage(ttk.Frame):
         
         ttk.Label(layout, text="Settings", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W, pady=(0, 15))
         
+        # Auto-learn toggle
+        self.auto_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(layout, text="Auto-learn from new batches (Update model)", variable=self.auto_var).pack(anchor=tk.W, pady=(0, 15))
+        
         row1 = ttk.Frame(layout)
         row1.pack(fill=tk.X, pady=5)
         ttk.Label(row1, text="Confidence Threshold:").pack(side=tk.LEFT)
@@ -38,11 +42,14 @@ class SettingsPage(ttk.Frame):
         self.thresh_var.set(t)
         self.thresh_lbl.config(text=f"{t}%")
         self.spin.set(self.main.engine.config.get("min_examples_per_category", 5))
+        self.auto_var.set(self.main.engine.config.get("auto_learn", True))
         self._building = False
 
     def _save(self):
         self.main.engine.config["confidence_threshold"] = self.thresh_var.get() / 100.0
         self.main.engine.config["min_examples_per_category"] = int(self.spin.get())
+        self.main.engine.config["auto_learn"] = self.auto_var.get()
+        
         if self.main.engine.tmodel_path:
             try:
                 self.main.engine.save_model(backup_manager=self.main.backup_manager)
