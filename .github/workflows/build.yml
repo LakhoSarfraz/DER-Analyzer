@@ -24,8 +24,9 @@ jobs:
       - name: Build EXE
         shell: bash
         run: |
-          DOCX_TMPL=$(python -c "import docx, os; print(os.path.join(os.path.dirname(docx.__file__), 'templates'))")
-          pyinstaller --noconfirm --onefile --windowed --name DER_Analyzer --add-data "${DOCX_TMPL};docx/templates" main.py
+          # Dynamically find the template folder and add it with PyInstaller 6.0 colon separator
+          TEMPLATE_PATH=$(python -c "import docx, os; print(os.path.join(os.path.dirname(docx.__file__), 'templates'))")
+          pyinstaller --noconfirm --onefile --windowed --name DER_Analyzer --add-data "${TEMPLATE_PATH}:docx/templates" main.py
             
       - name: Upload artifact
         uses: actions/upload-artifact@v4
