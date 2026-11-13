@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import docx
 import copy
+import os
+import sys
 from ui.dialogs import ProbDialog
 
 class SearchableCombobox(ttk.Combobox):
@@ -211,7 +213,7 @@ class ReviewPage(ttk.Frame):
         for r in self.rows:
             if r["selected"].get(): 
                 r["category"] = cat
-                r["selected"].set(False) # Auto-unselect after assignment
+                r["selected"].set(False) 
                 assigned_any = True
                 
         if assigned_any:
@@ -232,7 +234,21 @@ class ReviewPage(ttk.Frame):
         if not path: return
         
         try:
-            doc = docx.Document()
+            doc = None
+            try:
+                doc = docx.Document()
+            except Exception:
+                # FALLBACK: If python-docx cannot find the template internally,
+                # search the PyInstaller temp folder manually.
+                if getattr(sys, 'frozen', False):
+                    template_path = os.path.join(sys._MEIPASS, 'docx', 'templates', 'default.docx')
+                    if os.path.exists(template_path):
+                        doc = docx.Document(template_path)
+                
+                # If still failed, raise the error to show in UI
+                if doc is None:
+                    raise RuntimeError("Could not locate 'default.docx' template in the system.")
+
             grouped = {}
             for item in approved: grouped.setdefault(item["category"], []).append(item)
             
