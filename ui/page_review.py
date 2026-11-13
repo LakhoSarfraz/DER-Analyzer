@@ -5,7 +5,6 @@ from collections import Counter
 from ui.dialogs import ProbDialog
 
 class SearchableCombobox(ttk.Combobox):
-    """A Combobox that filters its dropdown list as you type."""
     def __init__(self, master, **kw):
         super().__init__(master, **kw)
         self._values = []
@@ -43,7 +42,6 @@ class ReviewPage(ttk.Frame):
         self.summary_label = ttk.Label(header, text="", font=("Segoe UI", 9, "bold"))
         self.summary_label.pack(side=tk.RIGHT)
 
-        # Toolbar
         tb = ttk.Frame(layout)
         tb.pack(fill=tk.X, pady=(0, 10))
         
@@ -61,14 +59,12 @@ class ReviewPage(ttk.Frame):
         self.undo_btn = ttk.Button(tb, text="Undo Delete", command=self._undo_delete, state=tk.DISABLED)
         self.undo_btn.pack(side=tk.LEFT, padx=5)
         
-        # Bulk Assign
         ttk.Label(tb, text="Bulk assign selected to:").pack(side=tk.LEFT, padx=(20, 5))
         self.bulk_var = tk.StringVar()
         self.bulk_cb = SearchableCombobox(tb, textvariable=self.bulk_var, width=15)
         self.bulk_cb.pack(side=tk.LEFT, padx=5)
         ttk.Button(tb, text="Apply", command=self._bulk_assign).pack(side=tk.LEFT)
 
-        # Canvas for scrolling
         canvas_frame = ttk.Frame(layout)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -84,7 +80,6 @@ class ReviewPage(ttk.Frame):
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Footer
         footer = ttk.Frame(layout)
         footer.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(footer, text="← Back to Import", command=lambda: self.main._show_page("import")).pack(side=tk.LEFT)
@@ -136,10 +131,8 @@ class ReviewPage(ttk.Frame):
             f = tk.Frame(self.scrollable, bg=bg, pady=5, padx=5)
             f.pack(fill=tk.X)
             
-            # Checkbox
             tk.Checkbutton(f, variable=row["selected"], bg=bg).pack(side=tk.LEFT, padx=(0, 5))
             
-            # Text (Double-click to edit)
             lbl = tk.Label(f, text=row["text"], bg=bg, anchor="w", justify=tk.LEFT, wraplength=500, fg="#4a148c" if row["edited"] else "#000000")
             lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
             
@@ -162,7 +155,6 @@ class ReviewPage(ttk.Frame):
                 
             lbl.bind("<Double-1>", start_edit)
 
-            # Confidence
             c_pct = row["confidence"] * 100 if row["confidence"] > 0 else 0
             c_txt = f"{c_pct:.1f}%" if row["confidence"] > 0 else "—"
             c_lbl = tk.Label(f, text=c_txt, width=8, bg=bg, fg="#b26a00" if row["uncertain"] else "#1b5e20", cursor="hand2")
@@ -170,7 +162,6 @@ class ReviewPage(ttk.Frame):
             if row["top3"]:
                 c_lbl.bind("<Button-1>", lambda e, t=row["text"], tp=row["top3"]: ProbDialog(self.main.root, t, tp))
 
-            # Category Dropdown
             cb = SearchableCombobox(f, width=18)
             cb.set_values(self.main.engine.categories)
             cb.set(row["category"])
@@ -178,7 +169,6 @@ class ReviewPage(ttk.Frame):
             cb.bind("<<ComboboxSelected>>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
             cb.bind("<FocusOut>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
 
-            # Delete
             tk.Button(f, text="✕", bg=bg, relief=tk.FLAT, command=lambda r=row: self._delete_row(r)).pack(side=tk.RIGHT)
             
             ttk.Separator(self.scrollable, orient=tk.HORIZONTAL).pack(fill=tk.X)
