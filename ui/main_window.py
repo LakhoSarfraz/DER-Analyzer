@@ -10,7 +10,6 @@ from storage import Settings, BackupManager, app_dir
 from ui.page_import import ImportPage
 from ui.page_review import ReviewPage
 from ui.page_dataset import DatasetPage
-from ui.page_history import HistoryPage
 from ui.page_backups import BackupsPage
 from ui.page_settings import SettingsPage
 from ui.dialogs import NewModelDialog
@@ -38,6 +37,8 @@ class MainWindow:
         self._build_toolbar()
         self._build_central()
         self._build_statusbar()
+        
+        self._auto_load_model()
         self._refresh_ui()
 
     def _restore_geometry(self):
@@ -46,7 +47,6 @@ class MainWindow:
         x = self.settings.get_int("window_x", 100)
         y = self.settings.get_int("window_y", 100)
         self.root.geometry(f"{w}x{h}+{x}+{y}")
-        
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _on_close(self):
@@ -56,6 +56,17 @@ class MainWindow:
         self.settings.set_int("window_y", self.root.winfo_y())
         self.settings.save()
         self.root.destroy()
+
+    def _auto_load_model(self):
+        last_path = self.settings.get_str("last_model_path", "")
+        if last_path and os.path.exists(last_path):
+            try:
+                self.engine.load_model(last_path)
+                self.status_label.config(text=f"Auto-loaded model: {os.path.basename(last_path)}")
+            except Exception as e:
+                self.status_label.config(text="Failed to auto-load last model.")
+        else:
+            self.status_label.config(text="Ready. Create or load a .tmodel file to begin.")
 
     def _build_toolbar(self):
         tb = ttk.Frame(self.root, padding=(10, 8))
@@ -79,17 +90,17 @@ class MainWindow:
         self.stack_frame = ttk.Frame(self.container)
         self.stack_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
+        # History removed!
         self.pages = {
             "import": ImportPage(self.stack_frame, self),
             "review": ReviewPage(self.stack_frame, self),
             "dataset": DatasetPage(self.stack_frame, self),
-            "history": HistoryPage(self.stack_frame, self),
             "backups": BackupsPage(self.stack_frame, self),
             "settings": SettingsPage(self.stack_frame, self)
         }
         
         self.sidebar_buttons = {}
-        labels = {"import": "Import", "review": "Review", "dataset": "Dataset", "history": "History", "backups": "Backups", "settings": "Settings"}
+        labels = {"import": "Import", "review": "Review", "dataset": "Dataset", "backups": "Backups", "settings": "Settings"}
         for key, label in labels.items():
             btn = ttk.Button(self.sidebar, text=label, command=lambda k=key: self._show_page(k))
             btn.pack(fill=tk.X, padx=5, pady=2)
@@ -103,7 +114,7 @@ class MainWindow:
         self.status_label.pack(fill=tk.X, side=tk.BOTTOM)
 
     def _show_page(self, key):
-        if key in {"review", "dataset", "history", "settings"} and not self.engine.categories:
+        if key in {"review", "dataset", "settings"} and not self.engine.categories:
             self.status_label.config(text="Load or create a model first.")
             self._show_page("import")
             return
@@ -119,7 +130,7 @@ class MainWindow:
         has_model = bool(self.engine.categories)
         state = tk.NORMAL if has_model else tk.DISABLED
         
-        for key in ["review", "dataset", "history", "settings"]:
+        for key in ["review", "dataset", "settings"]:
             self.sidebar_buttons[key].config(state=state)
 
         if has_model:
@@ -162,6 +173,10 @@ class MainWindow:
             })
             self.engine.tmodel_path = path
             self.engine.save_model(backup_manager=None)
+            
+            self.settings.set_str("last_model_path", path)
+            self.settings.save()
+            
             self._refresh_ui()
             self._show_page("import")
             messagebox.showinfo("Success", "New .tmodel file created and ready for your first batch.")
@@ -175,6 +190,8 @@ class MainWindow:
         if not path: return
         try:
             self.engine.load_model(path)
+            self.settings.set_str("last_model_path", path)
+            self.settings.save()
             self._refresh_ui()
             self._show_page("import")
         except Exception as e:
