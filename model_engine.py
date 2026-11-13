@@ -1,8 +1,10 @@
 import os
+import io
+import json
+import zipfile
 import tempfile
 import joblib
 from collections import Counter
-from datetime import datetime
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -12,7 +14,13 @@ class ModelEngine:
     def __init__(self, tmodel_path=None):
         self.tmodel_path = tmodel_path
         self.categories = []
-        self.config = {"confidence_threshold": 0.80, "min_examples_per_category": 5, "cv_accuracy": None, "cv_small_data": False, "export_history": []}
+        self.config = {
+            "confidence_threshold": 0.80, 
+            "min_examples_per_category": 5, 
+            "cv_accuracy": None, 
+            "cv_small_data": False,
+            "auto_learn": True
+        }
         self.dataset = []
         self.pipeline = None
         if tmodel_path and os.path.exists(tmodel_path): self.load_model(tmodel_path)
@@ -31,32 +39,48 @@ class ModelEngine:
         self.pipeline = None
         self.config["cv_accuracy"] = None
         self.config["cv_small_data"] = False
-        self.config["export_history"] = []
 
     def load_model(self, path):
-        data = joblib.load(path)
-        self.categories = data.get("categories", [])
-        self.config = data.get("config", self.config)
-        self.config.setdefault("cv_accuracy", None)
-        self.config.setdefault("cv_small_data", False)
-        self.config.setdefault("export_history", [])
-        self.dataset = data.get("dataset", [])
-        self.pipeline = data.get("pipeline", None)
+        try:
+            with zipfile.ZipFile(path, 'r') as zf:
+                data = json.loads(zf.read('data.json').decode('utf-8'))
+                self.categories = data.get("categories", [])
+                self.config = data.get("config", self.config)
+                self.config.setdefault("auto_learn", True)
+                self.dataset = data.get("dataset", [])
+                
+                if 'model.joblib' in zf.namelist():
+                    with zf.open('model.joblib') as f:
+                        self.pipeline = joblib.load(f)
+                else:
+                    self.pipeline = None
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model. It may be outdated or corrupted.\n{e}")
         self.tmodel_path = path
 
     def save_model(self, path=None, backup_manager=None):
         target_path = path or self.tmodel_path
-        if not target_path: raise ValueError("No target path specified for saving .tmodel file.")
+        if not target_path: raise ValueError("No target path specified.")
         if backup_manager and os.path.exists(target_path):
             try: backup_manager.create_backup(target_path)
             except Exception: pass
-        payload = {"categories": self.categories, "config": self.config, "dataset": self.dataset, "pipeline": self.pipeline}
+            
+        payload_data = {
+            "categories": self.categories,
+            "config": self.config,
+            "dataset": self.dataset
+        }
+        
         dir_name = os.path.dirname(os.path.abspath(target_path))
         os.makedirs(dir_name, exist_ok=True)
-        with tempfile.NamedTemporaryFile("wb", dir=dir_name, delete=False) as tmp:
-            joblib.dump(payload, tmp)
-            tmp_path = tmp.name
-        os.replace(tmp_path, target_path)
+        
+        with zipfile.ZipFile(target_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('data.json', json.dumps(payload_data, indent=4))
+            if self.pipeline:
+                model_bytes = io.BytesIO()
+                joblib.dump(self.pipeline, model_bytes)
+                zf.writestr('model.joblib', model_bytes.getvalue())
+                
         self.tmodel_path = target_path
 
     def check_readiness(self):
@@ -94,7 +118,7 @@ class ModelEngine:
             self.config["cv_accuracy"] = cv
             self.config["cv_small_data"] = small
             return True
-        except Exception as e: raise RuntimeError(f"Training failed securely. Previous model preserved. Error: {e}")
+        except Exception as e: raise RuntimeError(f"Training failed securely. Error: {e}")
 
     def classify_batch(self, paragraphs):
         is_ready, _ = self.check_readiness()
@@ -149,8 +173,3 @@ class ModelEngine:
         self.pipeline = None
         self.config["cv_accuracy"] = None
         self.config["cv_small_data"] = False
-
-    def record_export(self, counts_per_category):
-        history = list(self.config.get("export_history", []))
-        history.append({"timestamp": datetime.now().isoformat(timespec="seconds"), "total": sum(counts_per_category.values()), "counts": dict(counts_per_category), "cv_accuracy": self.config.get("cv_accuracy"), "threshold": self.config.get("confidence_threshold"), "total_examples": len(self.dataset)})
-        self.config["export_history"] = history[-30:]
