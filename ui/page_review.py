@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import docx
-from collections import Counter
+import copy
 from ui.dialogs import ProbDialog
 
 class SearchableCombobox(ttk.Combobox):
@@ -30,7 +30,6 @@ class ReviewPage(ttk.Frame):
         self.rows = []
         self.deleted_stack = []
         self._build_ui()
-        self._bind_shortcuts()
 
     def _build_ui(self):
         layout = ttk.Frame(self, padding=15)
@@ -42,6 +41,7 @@ class ReviewPage(ttk.Frame):
         self.summary_label = ttk.Label(header, text="", font=("Segoe UI", 9, "bold"))
         self.summary_label.pack(side=tk.RIGHT)
 
+        # Toolbar
         tb = ttk.Frame(layout)
         tb.pack(fill=tk.X, pady=(0, 10))
         
@@ -52,19 +52,20 @@ class ReviewPage(ttk.Frame):
         
         ttk.Label(tb, text="Sort:").pack(side=tk.LEFT)
         self.sort_var = tk.StringVar(value="Original")
-        sort_cb = ttk.Combobox(tb, textvariable=self.sort_var, values=["Original", "Confidence ↑", "Confidence ↓"], state="readonly", width=15)
+        sort_cb = ttk.Combobox(tb, textvariable=self.sort_var, values=["Original", "Confidence ↑", "Confidence ↓", "Invalid First"], state="readonly", width=15)
         sort_cb.pack(side=tk.LEFT, padx=(5, 15))
         sort_cb.bind("<<ComboboxSelected>>", lambda e: self._rebuild_canvas())
         
         self.undo_btn = ttk.Button(tb, text="Undo Delete", command=self._undo_delete, state=tk.DISABLED)
         self.undo_btn.pack(side=tk.LEFT, padx=5)
         
-        ttk.Label(tb, text="Bulk assign selected to:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(tb, text="Bulk assign:").pack(side=tk.LEFT, padx=(20, 5))
         self.bulk_var = tk.StringVar()
         self.bulk_cb = SearchableCombobox(tb, textvariable=self.bulk_var, width=15)
         self.bulk_cb.pack(side=tk.LEFT, padx=5)
         ttk.Button(tb, text="Apply", command=self._bulk_assign).pack(side=tk.LEFT)
 
+        # Canvas
         canvas_frame = ttk.Frame(layout)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -80,36 +81,22 @@ class ReviewPage(ttk.Frame):
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
+        # Footer
         footer = ttk.Frame(layout)
         footer.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(footer, text="← Back to Import", command=lambda: self.main._show_page("import")).pack(side=tk.LEFT)
-        self.finalize_btn = ttk.Button(footer, text="Finalize, Export & Auto-Train", command=self._on_finalize)
+        self.finalize_btn = ttk.Button(footer, text="Finalize & Export", command=self._on_finalize)
         self.finalize_btn.pack(side=tk.RIGHT)
-
-    def _bind_shortcuts(self):
-        self.main.root.bind('<Control-f>', lambda e: self.tk_focusNext())
-        self.main.root.bind('<Control-Return>', lambda e: self._on_finalize())
-        self.main.root.bind('<Delete>', lambda e: self._delete_selected())
-        for i in range(1, 10):
-            self.main.root.bind(str(i), lambda e, idx=i: self._assign_shortcut(idx))
 
     def refresh(self):
         self.bulk_cb.set_values(self.main.engine.categories)
 
-    def load_predictions(self, predictions):
+    def load_items(self, items):
         self.rows.clear()
         self.deleted_stack.clear()
-        for p in predictions:
-            self.rows.append({
-                "text": p["text"],
-                "orig_text": p["text"],
-                "edited": False,
-                "category": "" if p["is_uncertain"] else p["category"],
-                "confidence": p["confidence"],
-                "uncertain": p["is_uncertain"],
-                "top3": p.get("top3", []),
-                "selected": tk.BooleanVar(value=False)
-            })
+        for item in items:
+            item["selected"] = tk.BooleanVar(value=False)
+            self.rows.append(item)
         self.filter_var.set("")
         self._rebuild_canvas()
 
@@ -119,6 +106,7 @@ class ReviewPage(ttk.Frame):
         mode = self.sort_var.get()
         if mode == "Confidence ↑": res.sort(key=lambda r: r["confidence"])
         elif mode == "Confidence ↓": res.sort(key=lambda r: r["confidence"], reverse=True)
+        elif mode == "Invalid First": res.sort(key=lambda r: 1 if r["is_valid"] else 0)
         return res
 
     def _rebuild_canvas(self):
@@ -127,79 +115,78 @@ class ReviewPage(ttk.Frame):
             
         visible = self._visible_rows()
         for i, row in enumerate(visible):
-            bg = "#fff8e1" if row["uncertain"] else "#ffffff"
+            # Highlight Logic: Red for invalid, Yellow for Uncertain
+            if not row["is_valid"]:
+                bg = "#ffcdd2" # Light Red
+            elif row["uncertain"]:
+                bg = "#fff8e1" # Light Yellow
+            else:
+                bg = "#ffffff"
+                
             f = tk.Frame(self.scrollable, bg=bg, pady=5, padx=5)
             f.pack(fill=tk.X)
             
             tk.Checkbutton(f, variable=row["selected"], bg=bg).pack(side=tk.LEFT, padx=(0, 5))
             
-            lbl = tk.Label(f, text=row["text"], bg=bg, anchor="w", justify=tk.LEFT, wraplength=500, fg="#4a148c" if row["edited"] else "#000000")
+            # Text Label
+            lbl = tk.Label(f, text=row["display_text"], bg=bg, anchor="w", justify=tk.LEFT, wraplength=450, fg="#4a148c" if row.get("edited") else "#000000")
             lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            
-            def start_edit(event, r=row, l=lbl):
-                e = tk.Entry(f, font=("Segoe UI", 9))
-                e.insert(0, r["text"])
-                e.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                l.pack_forget()
-                e.focus()
-                def save_edit(ev=None):
-                    new_txt = e.get().strip()
-                    if new_txt:
-                        r["text"] = new_txt
-                        r["edited"] = (new_txt != r["orig_text"])
-                        l.config(text=new_txt, fg="#4a148c" if r["edited"] else "#000000")
-                    e.destroy()
-                    l.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                e.bind("<Return>", save_edit)
-                e.bind("<FocusOut>", save_edit)
-                
-            lbl.bind("<Double-1>", start_edit)
 
+            # Confidence
             c_pct = row["confidence"] * 100 if row["confidence"] > 0 else 0
             c_txt = f"{c_pct:.1f}%" if row["confidence"] > 0 else "—"
-            c_lbl = tk.Label(f, text=c_txt, width=8, bg=bg, fg="#b26a00" if row["uncertain"] else "#1b5e20", cursor="hand2")
-            c_lbl.pack(side=tk.RIGHT, padx=10)
+            c_lbl = tk.Label(f, text=c_txt, width=7, bg=bg, fg="#b26a00" if row["uncertain"] else "#1b5e20", cursor="hand2")
+            c_lbl.pack(side=tk.RIGHT, padx=5)
             if row["top3"]:
                 c_lbl.bind("<Button-1>", lambda e, t=row["text"], tp=row["top3"]: ProbDialog(self.main.root, t, tp))
 
-            cb = SearchableCombobox(f, width=18)
+            # Category Dropdown
+            cb = SearchableCombobox(f, width=16)
             cb.set_values(self.main.engine.categories)
             cb.set(row["category"])
-            cb.pack(side=tk.RIGHT, padx=10)
+            cb.pack(side=tk.RIGHT, padx=5)
             cb.bind("<<ComboboxSelected>>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
             cb.bind("<FocusOut>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
 
+            # Action Buttons
             tk.Button(f, text="✕", bg=bg, relief=tk.FLAT, command=lambda r=row: self._delete_row(r)).pack(side=tk.RIGHT)
-            
+            tk.Button(f, text="✎", bg=bg, relief=tk.FLAT, command=lambda r=row: self._edit_row(r)).pack(side=tk.RIGHT, padx=2)
+
             ttk.Separator(self.scrollable, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
-        self.summary_label.config(text=f"Showing {len(visible)} / {len(self.rows)} paragraphs")
+        self.summary_label.config(text=f"Showing {len(visible)} / {len(self.rows)} blocks")
         self.undo_btn.config(state=tk.NORMAL if self.deleted_stack else tk.DISABLED)
+
+    def _edit_row(self, row):
+        # Basic popup for editing text
+        top = tk.Toplevel(self.main.root)
+        top.title("Edit Block")
+        top.geometry("500x250")
+        top.transient(self.main.root)
+        
+        txt = tk.Text(top, wrap=tk.WORD)
+        txt.insert("1.0", row["text"])
+        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        def save():
+            new = txt.get("1.0", tk.END).strip()
+            if new:
+                row["text"] = new
+                row["display_text"] = new if row["type"] == "paragraph" else new[:100] + "..."
+                row["edited"] = True
+            top.destroy()
+            self._rebuild_canvas()
+            
+        ttk.Button(top, text="Save", command=save).pack(pady=5)
 
     def _delete_row(self, row):
         self.deleted_stack.append(row)
         self.rows.remove(row)
         self._rebuild_canvas()
 
-    def _delete_selected(self):
-        to_del = [r for r in self.rows if r["selected"].get()]
-        if not to_del: return
-        for r in to_del:
-            self.deleted_stack.append(r)
-            self.rows.remove(r)
-        self._rebuild_canvas()
-
     def _undo_delete(self):
         if not self.deleted_stack: return
         self.rows.append(self.deleted_stack.pop())
-        self._rebuild_canvas()
-
-    def _assign_shortcut(self, index):
-        cats = self.main.engine.categories
-        if index > len(cats): return
-        cat = cats[index - 1]
-        for r in self.rows:
-            if r["selected"].get(): r["category"] = cat
         self._rebuild_canvas()
 
     def _bulk_assign(self):
@@ -216,12 +203,9 @@ class ReviewPage(ttk.Frame):
         for i, r in enumerate(self.rows):
             cat = (r["category"] or "").strip()
             if not cat:
-                messagebox.showwarning("Incomplete", f"Row {i+1} has no category.")
+                messagebox.showwarning("Incomplete", f"Block {i+1} has no category.")
                 return
-            if cat not in self.main.engine.categories:
-                messagebox.showwarning("Invalid", f"Row {i+1} category '{cat}' is invalid.")
-                return
-            approved.append((r["text"], cat))
+            approved.append(r)
             
         if not approved: return
 
@@ -231,10 +215,20 @@ class ReviewPage(ttk.Frame):
         try:
             doc = docx.Document()
             grouped = {}
-            for text, cat in approved: grouped.setdefault(cat, []).append(text)
-            for cat, paras in grouped.items():
+            for item in approved: grouped.setdefault(item["category"], []).append(item)
+            
+            for cat, items in grouped.items():
                 doc.add_heading(cat, level=2)
-                for p in paras: doc.add_paragraph(p)
+                for item in items:
+                    if item["type"] == "table" and item["obj"] is not None:
+                        # Copy original table XML perfectly
+                        try:
+                            tbl_xml = copy.deepcopy(item["obj"]._tbl)
+                            doc.element.body.append(tbl_xml)
+                        except Exception:
+                            doc.add_paragraph(f"[Table Error: {item['text']}]")
+                    else:
+                        doc.add_paragraph(item["text"])
                 doc.add_paragraph("")
             doc.save(path)
         except Exception as e:
@@ -242,24 +236,28 @@ class ReviewPage(ttk.Frame):
             return
 
         self.finalize_btn.config(state=tk.DISABLED)
-        try:
-            combined = {c for _, c in self.main.engine.dataset} | {c for _, c in approved}
-            if len(combined) < 2:
-                self.main.engine.dataset.extend(approved)
-                if self.main.engine.tmodel_path: self.main.engine.save_model(backup_manager=self.main.backup_manager)
-            else:
-                self.main.engine.train(approved)
-                if self.main.engine.tmodel_path: self.main.engine.save_model(backup_manager=self.main.backup_manager)
+        
+        if self.main.engine.config.get("auto_learn", True):
+            try:
+                new_data = [(r["text"], r["category"]) for r in approved]
+                combined = {c for _, c in self.main.engine.dataset} | {c for _, c in new_data}
+                if len(combined) < 2:
+                    self.main.engine.dataset.extend(new_data)
+                    if self.main.engine.tmodel_path: self.main.engine.save_model(backup_manager=self.main.backup_manager)
+                else:
+                    self.main.engine.train(new_data)
+                    if self.main.engine.tmodel_path: self.main.engine.save_model(backup_manager=self.main.backup_manager)
+            except Exception as e:
+                self.finalize_btn.config(state=tk.NORMAL)
+                messagebox.showerror("Training Warning", f"Export saved, but training error:\n{e}")
+                return
+        else:
+            # Auto-learn disabled, just save model config changes (none here anyway)
+            if self.main.engine.tmodel_path:
+                self.main.engine.save_model(backup_manager=self.main.backup_manager)
                 
-            self.main.engine.record_export(Counter(c for _, c in approved))
-            if self.main.engine.tmodel_path: self.main.engine.save_model(backup_manager=None)
-        except Exception as e:
-            self.finalize_btn.config(state=tk.NORMAL)
-            messagebox.showerror("Training Warning", f"Export saved, but training error:\n{e}")
-            return
-            
         self.finalize_btn.config(state=tk.NORMAL)
         self.main.pages["import"].text_edit.delete("1.0", tk.END)
         self.main._show_page("import")
         self.main._refresh_ui()
-        messagebox.showinfo("Success", f"Exported to:\n{path}\n\nModel retrained.")
+        messagebox.showinfo("Success", f"Exported to:\n{path}\n\nModel retrained." if self.main.engine.config.get("auto_learn", True) else "Exported successfully.")
