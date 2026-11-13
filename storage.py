@@ -13,19 +13,31 @@ def settings_path():
     return os.path.join(app_dir(), "settings.ini")
 
 class Settings:
-    DEFAULTS = {"window_width": 1200, "window_height": 780, "window_x": -1, "window_y": -1}
+    DEFAULTS = {"window_width": 1200, "window_height": 780, "window_x": -1, "window_y": -1, "last_model_path": ""}
+    
     def __init__(self):
         self._parser = configparser.ConfigParser()
         path = settings_path()
         if os.path.exists(path):
             try: self._parser.read(path)
             except Exception: pass
+            
     def get_int(self, key, default=None):
-        try: return self._parser.getint("window", key)
+        try: return self._parser.getint("settings", key)
         except Exception: return default if default is not None else self.DEFAULTS.get(key, 0)
+        
     def set_int(self, key, value):
-        if not self._parser.has_section("window"): self._parser.add_section("window")
-        self._parser.set("window", key, str(value))
+        if not self._parser.has_section("settings"): self._parser.add_section("settings")
+        self._parser.set("settings", key, str(value))
+        
+    def get_str(self, key, default=""):
+        try: return self._parser.get("settings", key)
+        except Exception: return default if default is not None else self.DEFAULTS.get(key, "")
+        
+    def set_str(self, key, value):
+        if not self._parser.has_section("settings"): self._parser.add_section("settings")
+        self._parser.set("settings", key, str(value))
+        
     def save(self):
         try:
             with open(settings_path(), "w", encoding="utf-8") as f: self._parser.write(f)
