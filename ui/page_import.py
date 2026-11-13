@@ -24,7 +24,6 @@ class ImportPage(ttk.Frame):
         self.text_edit = tk.Text(layout, font=("Segoe UI", 10), wrap=tk.WORD)
         self.text_edit.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # Drag and Drop setup
         self.text_edit.drop_target_register(DND_FILES)
         self.text_edit.dnd_bind('<<Drop>>', self._on_drop)
 
@@ -40,7 +39,6 @@ class ImportPage(ttk.Frame):
         self.btn_classify.config(state=state)
 
     def _on_drop(self, event):
-        # TkinterDnD returns paths wrapped in braces if they have spaces
         path = event.data.strip('{}')
         if path.lower().endswith(".docx"):
             self._import_docx(path)
