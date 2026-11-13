@@ -1,8 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import docx
 from PyInstaller.utils.hooks import collect_data_files
 
-# This grabs EVERYTHING inside python-docx, including the missing default-styles.xml
+# Bundle python-docx package data and explicitly include its default Word template.
+# docx.Document() needs this file when creating a new document without a template.
 datas = collect_data_files('docx')
+template_src = os.path.join(os.path.dirname(docx.__file__), 'templates', 'default.docx')
+if os.path.isfile(template_src):
+    normalized_src = os.path.normcase(os.path.abspath(template_src))
+    already_included = any(
+        os.path.normcase(os.path.abspath(src)) == normalized_src
+        and os.path.normpath(dest).replace('\\', '/') == 'docx/templates'
+        for src, dest in datas
+    )
+    if not already_included:
+        datas.append((template_src, 'docx/templates'))
+else:
+    raise FileNotFoundError(f"python-docx default template not found: {template_src}")
 
 a = Analysis(
     ['main.py'],
