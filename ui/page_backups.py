@@ -10,7 +10,7 @@ class BackupsPage(ttk.Frame):
         layout.pack(fill=tk.BOTH, expand=True)
         
         ttk.Label(layout, text="Model Backups (Max 3)", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W)
-        ttk.Label(layout, text="Stored in %APPDATA%\\DERClassifier\\backups", foreground="#555").pack(anchor=tk.W, pady=(0, 10))
+        ttk.Label(layout, text="Stored in %APPDATA%\\DER Analyzer\\backups", foreground="#555").pack(anchor=tk.W, pady=(0, 10))
         
         cols = ("name", "size", "action")
         self.tree = ttk.Treeview(layout, columns=cols, show="headings")
