@@ -13,16 +13,14 @@ EXCLUDED_STYLE_NAMES = {
     "list bullet 2", "list bullet 3", "list number 2", "list number 3",
 }
 
-# Validation for "On [date]" and "It is learnt"
 VALIDATION_RE = re.compile(
     r"^(?:"
-    r"On\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+[a-zA-Z]+|\s*[/\-]\s*\d{1,2})"  # On 16 Aug, On 16/8, On 16-8
-    r"|It\s+is\s+learnt"                                                # It is learnt
+    r"On\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+[a-zA-Z]+|\s*[/\-]\s*\d{1,2})"
+    r"|It\s+is\s+learnt"
     r")", re.IGNORECASE
 )
 
 def _iter_block_items(parent):
-    """Yields paragraphs and tables in the exact order they appear in the document."""
     from docx.oxml.table import CT_Tbl
     from docx.oxml.text.paragraph import CT_P
     parent_elm = parent.element.body
@@ -32,24 +30,49 @@ def _iter_block_items(parent):
         elif isinstance(child, CT_Tbl):
             yield Table(child, parent)
 
-def _clean_text(text):
-    text = text.replace('\t', ' ')
-    # Strip manual numbering like "1. " or "1) "
-    text = re.sub(r'^\s*\d+[\.\)]\s*', '', text)
+def _get_clean_text(paragraph):
+    text = paragraph.text
+    if not text.strip(): return ""
+
+    # Find the target start (On [date] or It is learnt)
+    match = re.search(r'(On\s+\d{1,2}|It\s+is\s+learnt)', text, re.IGNORECASE)
+    
+    if match:
+        prefix = text[:match.start()]
+        # Check if prefix is short enough to be junk (<= 10 words)
+        if len(prefix.split()) <= 10:
+            # Check underline
+            is_underlined = True
+            if prefix.strip():
+                char_idx = 0
+                for run in paragraph.runs:
+                    if char_idx >= match.start(): break
+                    if run.text.strip():
+                        if not run.underline:
+                            is_underlined = False
+                            break
+                    char_idx += len(run.text)
+
+            # Check asterisks
+            is_asterisk = bool(re.match(r'^\s*\*([^\*]+)\*\s*$', prefix))
+            
+            # Check if it has no letters (pure numbering/punctuation)
+            no_letters = not re.search(r'[a-zA-Z]', prefix)
+
+            # If it's underlined, asterisked, or pure numbering, strip it
+            if is_underlined or is_asterisk or no_letters:
+                text = text[match.start():]
+
+    # Aggressively remove any leading non-letters (dots, numbers, spaces)
+    text = re.sub(r'^[^a-zA-Z]+', '', text)
+
+    # Global Whitespace Normalization (replace tabs, newlines, double spaces with single space)
+    text = re.sub(r'\s+', ' ', text)
+
     return text.strip()
 
-def _process_asterisks(text):
-    # If text starts with *...* and is immediately followed by On/It is learnt
-    match = re.match(r'^\s*\*([^\*]+)\*\s*(.*)', text)
-    if match:
-        inside = match.group(1)
-        outside = match.group(2)
-        if len(inside.split()) <= 10 and VALIDATION_RE.match(outside):
-            return outside
-    return text
-
 def extract_paragraphs_from_docx(file_path, min_words=10):
-    # Handle legacy .doc files by converting to .docx using MS Word (if installed)
+    # Handle legacy .doc files by converting to .docx using MS Word
     if file_path.lower().endswith('.doc'):
         try:
             import win32com.client
@@ -83,17 +106,23 @@ def extract_paragraphs_from_docx(file_path, min_words=10):
                     cells_text.append(cell.text.strip())
             full_text = " ".join(cells_text)
             
-            # Extract first row for UI preview
-            preview_text = ""
-            if len(block.rows) > 0:
-                preview_text = " | ".join(c.text.strip() for c in block.rows[0].cells)
+            # Strict single-space normalization for table
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            
+            # Extract first TWO rows for UI preview
+            preview_lines = []
+            for row_idx, row in enumerate(block.rows):
+                if row_idx >= 2: break
+                row_text = " | ".join(c.text.strip() for c in row.cells)
+                preview_lines.append(re.sub(r'\s+', ' ', row_text).strip())
+            preview_text = " // ".join(preview_lines)
                 
             if len(full_text.split()) >= min_words:
                 result.append({
                     "type": "table",
                     "text": full_text,
                     "display_text": preview_text,
-                    "is_valid": True, # Tables bypass the On[date] validation
+                    "is_valid": True, 
                     "obj": block
                 })
                 stats["imported"] += 1
@@ -112,19 +141,13 @@ def extract_paragraphs_from_docx(file_path, min_words=10):
                     stats["headings"] += 1; continue
             except Exception: pass
             
-            raw_text = block.text.strip()
-            if not raw_text: continue
-            
-            # 1. Process Asterisks
-            text = _process_asterisks(raw_text)
-            
-            # 2. Clean Tabs & Numbering
-            text = _clean_text(text)
+            # Use the new combined cleaning logic
+            text = _get_clean_text(block)
+            if not text: continue
             
             if len(text.split()) < min_words:
                 stats["short"] += 1; continue
                 
-            # 3. Validate (On [date] or It is learnt)
             is_valid = bool(VALIDATION_RE.match(text))
             
             result.append({
