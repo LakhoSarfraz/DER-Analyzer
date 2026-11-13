@@ -1,23 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import docx
-from PyInstaller.utils.hooks import collect_data_files
 
-# Bundle python-docx package data and explicitly include its default Word template.
-# docx.Document() needs this file when creating a new document without a template.
-datas = collect_data_files('docx')
-template_src = os.path.join(os.path.dirname(docx.__file__), 'templates', 'default.docx')
-if os.path.isfile(template_src):
-    normalized_src = os.path.normcase(os.path.abspath(template_src))
-    already_included = any(
-        os.path.normcase(os.path.abspath(src)) == normalized_src
-        and os.path.normpath(dest).replace('\\', '/') == 'docx/templates'
-        for src, dest in datas
-    )
-    if not already_included:
-        datas.append((template_src, 'docx/templates'))
-else:
-    raise FileNotFoundError(f"python-docx default template not found: {template_src}")
+# Copy the entire docx package folder to ensure all XML and docx templates are included
+docx_path = os.path.dirname(docx.__file__)
+datas = [(docx_path, 'docx')]
 
 a = Analysis(
     ['main.py'],
@@ -43,7 +30,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # CRITICAL FIX: Disable UPX to prevent corruption of the .docx template
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
