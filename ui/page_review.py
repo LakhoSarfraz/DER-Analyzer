@@ -4,7 +4,24 @@ import docx
 import copy
 import os
 import sys
+import zipfile
+import tempfile
 from ui.dialogs import ProbDialog
+
+def get_blank_docx_path():
+    """Generates a completely valid blank .docx template if PyInstaller missed it."""
+    path = os.path.join(tempfile.gettempdir(), 'der_blank_template.docx')
+    if not os.path.exists(path):
+        ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+        rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
+        doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body></w:body></w:document>'
+        drels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('[Content_Types].xml', ct)
+            zf.writestr('_rels/.rels', rels)
+            zf.writestr('word/document.xml', doc)
+            zf.writestr('word/_rels/document.xml.rels', drels)
+    return path
 
 class SearchableCombobox(ttk.Combobox):
     def __init__(self, master, **kw):
@@ -43,7 +60,6 @@ class ReviewPage(ttk.Frame):
         self.summary_label = ttk.Label(header, text="", font=("Segoe UI", 9, "bold"))
         self.summary_label.pack(side=tk.RIGHT)
 
-        # Toolbar Row 1 (Filter, Sort)
         tb1 = ttk.Frame(layout)
         tb1.pack(fill=tk.X, pady=(0, 5))
         
@@ -61,7 +77,6 @@ class ReviewPage(ttk.Frame):
         self.undo_btn = ttk.Button(tb1, text="Undo Delete", command=self._undo_delete, state=tk.DISABLED)
         self.undo_btn.pack(side=tk.LEFT, padx=5)
 
-        # Toolbar Row 2 (Selection & Bulk Assign)
         tb2 = ttk.Frame(layout)
         tb2.pack(fill=tk.X, pady=(0, 10))
 
@@ -74,7 +89,6 @@ class ReviewPage(ttk.Frame):
         self.bulk_cb.pack(side=tk.LEFT, padx=5)
         ttk.Button(tb2, text="Apply", command=self._bulk_assign).pack(side=tk.LEFT)
 
-        # Canvas
         canvas_frame = ttk.Frame(layout)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
         
@@ -90,7 +104,6 @@ class ReviewPage(ttk.Frame):
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Footer
         footer = ttk.Frame(layout)
         footer.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(footer, text="← Back to Import", command=lambda: self.main._show_page("import")).pack(side=tk.LEFT)
@@ -234,20 +247,11 @@ class ReviewPage(ttk.Frame):
         if not path: return
         
         try:
-            doc = None
+            # BULLETPROOF FIX: Try normal way, if fails, generate a blank template
             try:
                 doc = docx.Document()
             except Exception:
-                # FALLBACK: If python-docx cannot find the template internally,
-                # search the PyInstaller temp folder manually.
-                if getattr(sys, 'frozen', False):
-                    template_path = os.path.join(sys._MEIPASS, 'docx', 'templates', 'default.docx')
-                    if os.path.exists(template_path):
-                        doc = docx.Document(template_path)
-                
-                # If still failed, raise the error to show in UI
-                if doc is None:
-                    raise RuntimeError("Could not locate 'default.docx' template in the system.")
+                doc = docx.Document(get_blank_docx_path())
 
             grouped = {}
             for item in approved: grouped.setdefault(item["category"], []).append(item)
