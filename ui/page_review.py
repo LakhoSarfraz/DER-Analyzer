@@ -41,29 +41,36 @@ class ReviewPage(ttk.Frame):
         self.summary_label = ttk.Label(header, text="", font=("Segoe UI", 9, "bold"))
         self.summary_label.pack(side=tk.RIGHT)
 
-        # Toolbar
-        tb = ttk.Frame(layout)
-        tb.pack(fill=tk.X, pady=(0, 10))
+        # Toolbar Row 1 (Filter, Sort)
+        tb1 = ttk.Frame(layout)
+        tb1.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(tb, text="Filter:").pack(side=tk.LEFT)
+        ttk.Label(tb1, text="Filter:").pack(side=tk.LEFT)
         self.filter_var = tk.StringVar()
         self.filter_var.trace("w", lambda *a: self._rebuild_canvas())
-        ttk.Entry(tb, textvariable=self.filter_var, width=25).pack(side=tk.LEFT, padx=(5, 15))
+        ttk.Entry(tb1, textvariable=self.filter_var, width=25).pack(side=tk.LEFT, padx=(5, 15))
         
-        ttk.Label(tb, text="Sort:").pack(side=tk.LEFT)
+        ttk.Label(tb1, text="Sort:").pack(side=tk.LEFT)
         self.sort_var = tk.StringVar(value="Original")
-        sort_cb = ttk.Combobox(tb, textvariable=self.sort_var, values=["Original", "Confidence ↑", "Confidence ↓", "Invalid First"], state="readonly", width=15)
+        sort_cb = ttk.Combobox(tb1, textvariable=self.sort_var, values=["Original", "Confidence ↑", "Confidence ↓", "Invalid First"], state="readonly", width=15)
         sort_cb.pack(side=tk.LEFT, padx=(5, 15))
         sort_cb.bind("<<ComboboxSelected>>", lambda e: self._rebuild_canvas())
         
-        self.undo_btn = ttk.Button(tb, text="Undo Delete", command=self._undo_delete, state=tk.DISABLED)
+        self.undo_btn = ttk.Button(tb1, text="Undo Delete", command=self._undo_delete, state=tk.DISABLED)
         self.undo_btn.pack(side=tk.LEFT, padx=5)
+
+        # Toolbar Row 2 (Selection & Bulk Assign)
+        tb2 = ttk.Frame(layout)
+        tb2.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(tb2, text="Select All", command=self._select_all).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(tb2, text="Unselect All", command=self._unselect_all).pack(side=tk.LEFT, padx=(0, 15))
         
-        ttk.Label(tb, text="Bulk assign:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(tb2, text="Bulk assign selected to:").pack(side=tk.LEFT, padx=(0, 5))
         self.bulk_var = tk.StringVar()
-        self.bulk_cb = SearchableCombobox(tb, textvariable=self.bulk_var, width=15)
+        self.bulk_cb = SearchableCombobox(tb2, textvariable=self.bulk_var, width=15)
         self.bulk_cb.pack(side=tk.LEFT, padx=5)
-        ttk.Button(tb, text="Apply", command=self._bulk_assign).pack(side=tk.LEFT)
+        ttk.Button(tb2, text="Apply", command=self._bulk_assign).pack(side=tk.LEFT)
 
         # Canvas
         canvas_frame = ttk.Frame(layout)
@@ -108,6 +115,16 @@ class ReviewPage(ttk.Frame):
         elif mode == "Confidence ↓": res.sort(key=lambda r: r["confidence"], reverse=True)
         elif mode == "Invalid First": res.sort(key=lambda r: 1 if r["is_valid"] else 0)
         return res
+
+    def _select_all(self):
+        for r in self._visible_rows():
+            r["selected"].set(True)
+        self._rebuild_canvas()
+
+    def _unselect_all(self):
+        for r in self._visible_rows():
+            r["selected"].set(False)
+        self._rebuild_canvas()
 
     def _rebuild_canvas(self):
         for w in self.scrollable.winfo_children():
@@ -189,9 +206,16 @@ class ReviewPage(ttk.Frame):
         if cat not in self.main.engine.categories:
             messagebox.showwarning("Invalid", "Select a valid category.")
             return
+            
+        assigned_any = False
         for r in self.rows:
-            if r["selected"].get(): r["category"] = cat
-        self._rebuild_canvas()
+            if r["selected"].get(): 
+                r["category"] = cat
+                r["selected"].set(False) # Auto-unselect after assignment
+                assigned_any = True
+                
+        if assigned_any:
+            self._rebuild_canvas()
 
     def _on_finalize(self):
         approved = []
