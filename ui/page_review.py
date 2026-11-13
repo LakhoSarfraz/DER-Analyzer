@@ -4,24 +4,7 @@ import docx
 import copy
 import os
 import sys
-import zipfile
-import tempfile
 from ui.dialogs import ProbDialog
-
-def get_blank_docx_path():
-    """Generates a completely valid blank .docx template if PyInstaller missed it."""
-    path = os.path.join(tempfile.gettempdir(), 'der_blank_template.docx')
-    if not os.path.exists(path):
-        ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
-        rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'
-        doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body></w:body></w:document>'
-        drels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
-        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr('[Content_Types].xml', ct)
-            zf.writestr('_rels/.rels', rels)
-            zf.writestr('word/document.xml', doc)
-            zf.writestr('word/_rels/document.xml.rels', drels)
-    return path
 
 class SearchableCombobox(ttk.Combobox):
     def __init__(self, master, **kw):
@@ -247,11 +230,8 @@ class ReviewPage(ttk.Frame):
         if not path: return
         
         try:
-            # BULLETPROOF FIX: Try normal way, if fails, generate a blank template
-            try:
-                doc = docx.Document()
-            except Exception:
-                doc = docx.Document(get_blank_docx_path())
+            # Standard initialization, the .spec file guarantees the templates will be there
+            doc = docx.Document()
 
             grouped = {}
             for item in approved: grouped.setdefault(item["category"], []).append(item)
