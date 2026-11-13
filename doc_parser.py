@@ -1,5 +1,8 @@
 import re
+import os
 import docx
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 EXCLUDED_STYLE_PREFIXES = (
     "heading", "title", "subtitle", "caption", "toc", "table of contents",
@@ -9,61 +12,128 @@ EXCLUDED_STYLE_NAMES = {
     "list paragraph", "list", "list bullet", "list number",
     "list bullet 2", "list bullet 3", "list number 2", "list number 3",
 }
-_MONTH = (r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|"
-          r"January|February|March|April|May|June|July|August|September|"
-          r"October|November|December)")
-DATE_PREFIX_RE = re.compile(
-    r"^\s*(?:"
-    r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}"
-    r"|\d{4}[./-]\d{1,2}[./-]\d{1,2}"
-    r"|\d{1,2}(?:st|nd|rd|th)?\s+" + _MONTH + r"\.?(?:\s+\d{2,4})?"
-    r"|" + _MONTH + r"\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{2,4})?"
-    r")", re.IGNORECASE)
-LIST_MARKER_RE = re.compile(
-    r"^\s*(?:"
-    r"[•\-\*\u2022\u25E6\u25AA\u25AB\u25CB\u25CF\u25A0]\s"
-    r"|\(?\d{1,3}[\.\)]\s"
-    r"|\(?[a-zA-Z][\.\)]\s"
-    r"|\(?[ivxlcdmIVXLCDM]{1,7}[\.\)]\s"
-    r")")
 
-def _is_native_list(p):
-    try:
-        pPr = p._p.pPr
-        return pPr is not None and pPr.numPr is not None
-    except Exception: return False
+# Validation for "On [date]" and "It is learnt"
+VALIDATION_RE = re.compile(
+    r"^(?:"
+    r"On\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+[a-zA-Z]+|\s*[/\-]\s*\d{1,2})"  # On 16 Aug, On 16/8, On 16-8
+    r"|It\s+is\s+learnt"                                                # It is learnt
+    r")", re.IGNORECASE
+)
 
-def _looks_like_heading_text(text):
-    words = text.split()
-    if len(words) > 12: return False
-    if text.isupper(): return True
-    if text.endswith(":") and len(words) <= 8: return True
-    if not re.search(r"[.!?]", text) and len(words) <= 10: return True
-    return False
+def _iter_block_items(parent):
+    """Yields paragraphs and tables in the exact order they appear in the document."""
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    parent_elm = parent.element.body
+    for child in parent_elm.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, parent)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, parent)
+
+def _clean_text(text):
+    text = text.replace('\t', ' ')
+    # Strip manual numbering like "1. " or "1) "
+    text = re.sub(r'^\s*\d+[\.\)]\s*', '', text)
+    return text.strip()
+
+def _process_asterisks(text):
+    # If text starts with *...* and is immediately followed by On/It is learnt
+    match = re.match(r'^\s*\*([^\*]+)\*\s*(.*)', text)
+    if match:
+        inside = match.group(1)
+        outside = match.group(2)
+        if len(inside.split()) <= 10 and VALIDATION_RE.match(outside):
+            return outside
+    return text
 
 def extract_paragraphs_from_docx(file_path, min_words=10):
-    try: doc = docx.Document(file_path)
-    except Exception as e: raise IOError(f"Failed to read Word document '{file_path}'. Error: {e}")
+    # Handle legacy .doc files by converting to .docx using MS Word (if installed)
+    if file_path.lower().endswith('.doc'):
+        try:
+            import win32com.client
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            doc = word.Documents.Open(file_path)
+            new_path = file_path + "x"
+            doc.SaveAs2(new_path, FileFormat=16) # 16 = wdFormatXMLDocument
+            doc.Close()
+            word.Quit()
+            file_path = new_path
+        except ImportError:
+            raise IOError("Reading .doc files requires 'pywin32' and Microsoft Word installed on this PC.\nPlease save the file as .docx.")
+        except Exception as e:
+            raise IOError(f"Failed to convert .doc file. Is Microsoft Word installed?\nError: {e}")
+
+    try:
+        doc = docx.Document(file_path)
+    except Exception as e:
+        raise IOError(f"Failed to read Word document '{file_path}'. Error: {e}")
+
     stats = {"headings": 0, "lists": 0, "short": 0, "imported": 0}
     result = []
-    for p in doc.paragraphs:
-        style = getattr(p, "style", None)
-        style_name = (getattr(style, "name", "") or "").strip().lower()
-        if style_name in EXCLUDED_STYLE_NAMES or any(style_name.startswith(pref) for pref in EXCLUDED_STYLE_PREFIXES):
-            stats["headings"] += 1; continue
-        try:
-            if p.paragraph_format.outline_level is not None:
+
+    for block in _iter_block_items(doc):
+        if isinstance(block, Table):
+            # Extract full text for model training
+            cells_text = []
+            for row in block.rows:
+                for cell in row.cells:
+                    cells_text.append(cell.text.strip())
+            full_text = " ".join(cells_text)
+            
+            # Extract first row for UI preview
+            preview_text = ""
+            if len(block.rows) > 0:
+                preview_text = " | ".join(c.text.strip() for c in block.rows[0].cells)
+                
+            if len(full_text.split()) >= min_words:
+                result.append({
+                    "type": "table",
+                    "text": full_text,
+                    "display_text": preview_text,
+                    "is_valid": True, # Tables bypass the On[date] validation
+                    "obj": block
+                })
+                stats["imported"] += 1
+            else:
+                stats["short"] += 1
+                
+        elif isinstance(block, Paragraph):
+            style = getattr(block, "style", None)
+            style_name = (getattr(style, "name", "") or "").strip().lower()
+            
+            if style_name in EXCLUDED_STYLE_NAMES or any(style_name.startswith(pref) for pref in EXCLUDED_STYLE_PREFIXES):
                 stats["headings"] += 1; continue
-        except Exception: pass
-        if _is_native_list(p):
-            stats["lists"] += 1; continue
-        text = p.text.strip()
-        if not text: continue
-        if not DATE_PREFIX_RE.match(text) and LIST_MARKER_RE.match(text):
-            stats["lists"] += 1; continue
-        if _looks_like_heading_text(text):
-            stats["headings"] += 1; continue
-        if len(text.split()) < min_words:
-            stats["short"] += 1; continue
-        result.append(text); stats["imported"] += 1
+                
+            try:
+                if block.paragraph_format.outline_level is not None:
+                    stats["headings"] += 1; continue
+            except Exception: pass
+            
+            raw_text = block.text.strip()
+            if not raw_text: continue
+            
+            # 1. Process Asterisks
+            text = _process_asterisks(raw_text)
+            
+            # 2. Clean Tabs & Numbering
+            text = _clean_text(text)
+            
+            if len(text.split()) < min_words:
+                stats["short"] += 1; continue
+                
+            # 3. Validate (On [date] or It is learnt)
+            is_valid = bool(VALIDATION_RE.match(text))
+            
+            result.append({
+                "type": "paragraph",
+                "text": text,
+                "display_text": text,
+                "is_valid": is_valid,
+                "obj": block
+            })
+            stats["imported"] += 1
+
     return result, stats
