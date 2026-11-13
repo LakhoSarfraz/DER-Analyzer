@@ -29,7 +29,7 @@ class MainWindow:
         self.root = root
         _cleanup_orphan_temp()
         
-        self.root.title("DERClassifier — Offline Paragraph Classifier")
+        self.root.title("DER Analyzer — Offline Paragraph Classifier")
         self.engine = ModelEngine()
         self.settings = Settings()
         self.backup_manager = BackupManager()
