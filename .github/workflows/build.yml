@@ -22,11 +22,8 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE
-        shell: bash
         run: |
-          # Dynamically find the template folder and add it with PyInstaller 6.0 colon separator
-          TEMPLATE_PATH=$(python -c "import docx, os; print(os.path.join(os.path.dirname(docx.__file__), 'templates'))")
-          pyinstaller --noconfirm --onefile --windowed --name DER_Analyzer --add-data "${TEMPLATE_PATH}:docx/templates" main.py
+          pyinstaller DER_Analyzer.spec
             
       - name: Upload artifact
         uses: actions/upload-artifact@v4
