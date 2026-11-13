@@ -115,11 +115,10 @@ class ReviewPage(ttk.Frame):
             
         visible = self._visible_rows()
         for i, row in enumerate(visible):
-            # Highlight Logic: Red for invalid, Yellow for Uncertain
             if not row["is_valid"]:
-                bg = "#ffcdd2" # Light Red
+                bg = "#ffcdd2" 
             elif row["uncertain"]:
-                bg = "#fff8e1" # Light Yellow
+                bg = "#fff8e1" 
             else:
                 bg = "#ffffff"
                 
@@ -128,11 +127,9 @@ class ReviewPage(ttk.Frame):
             
             tk.Checkbutton(f, variable=row["selected"], bg=bg).pack(side=tk.LEFT, padx=(0, 5))
             
-            # Text Label
             lbl = tk.Label(f, text=row["display_text"], bg=bg, anchor="w", justify=tk.LEFT, wraplength=450, fg="#4a148c" if row.get("edited") else "#000000")
             lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-            # Confidence
             c_pct = row["confidence"] * 100 if row["confidence"] > 0 else 0
             c_txt = f"{c_pct:.1f}%" if row["confidence"] > 0 else "—"
             c_lbl = tk.Label(f, text=c_txt, width=7, bg=bg, fg="#b26a00" if row["uncertain"] else "#1b5e20", cursor="hand2")
@@ -140,7 +137,6 @@ class ReviewPage(ttk.Frame):
             if row["top3"]:
                 c_lbl.bind("<Button-1>", lambda e, t=row["text"], tp=row["top3"]: ProbDialog(self.main.root, t, tp))
 
-            # Category Dropdown
             cb = SearchableCombobox(f, width=16)
             cb.set_values(self.main.engine.categories)
             cb.set(row["category"])
@@ -148,7 +144,6 @@ class ReviewPage(ttk.Frame):
             cb.bind("<<ComboboxSelected>>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
             cb.bind("<FocusOut>", lambda e, r=row, c=cb: r.update({"category": c.get()}))
 
-            # Action Buttons
             tk.Button(f, text="✕", bg=bg, relief=tk.FLAT, command=lambda r=row: self._delete_row(r)).pack(side=tk.RIGHT)
             tk.Button(f, text="✎", bg=bg, relief=tk.FLAT, command=lambda r=row: self._edit_row(r)).pack(side=tk.RIGHT, padx=2)
 
@@ -158,7 +153,6 @@ class ReviewPage(ttk.Frame):
         self.undo_btn.config(state=tk.NORMAL if self.deleted_stack else tk.DISABLED)
 
     def _edit_row(self, row):
-        # Basic popup for editing text
         top = tk.Toplevel(self.main.root)
         top.title("Edit Block")
         top.geometry("500x250")
@@ -168,7 +162,7 @@ class ReviewPage(ttk.Frame):
         txt.insert("1.0", row["text"])
         txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        def save():
+        def save(evt=None):
             new = txt.get("1.0", tk.END).strip()
             if new:
                 row["text"] = new
@@ -177,6 +171,7 @@ class ReviewPage(ttk.Frame):
             top.destroy()
             self._rebuild_canvas()
             
+        top.protocol("WM_DELETE_WINDOW", save)
         ttk.Button(top, text="Save", command=save).pack(pady=5)
 
     def _delete_row(self, row):
@@ -221,7 +216,6 @@ class ReviewPage(ttk.Frame):
                 doc.add_heading(cat, level=2)
                 for item in items:
                     if item["type"] == "table" and item["obj"] is not None:
-                        # Copy original table XML perfectly
                         try:
                             tbl_xml = copy.deepcopy(item["obj"]._tbl)
                             doc.element.body.append(tbl_xml)
@@ -252,7 +246,6 @@ class ReviewPage(ttk.Frame):
                 messagebox.showerror("Training Warning", f"Export saved, but training error:\n{e}")
                 return
         else:
-            # Auto-learn disabled, just save model config changes (none here anyway)
             if self.main.engine.tmodel_path:
                 self.main.engine.save_model(backup_manager=self.main.backup_manager)
                 
