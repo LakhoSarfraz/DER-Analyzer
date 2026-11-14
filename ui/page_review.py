@@ -230,7 +230,6 @@ class ReviewPage(ttk.Frame):
         if not path: return
         
         try:
-            # Standard initialization, the .spec file guarantees the templates will be there
             doc = docx.Document()
 
             grouped = {}
