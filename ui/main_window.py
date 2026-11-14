@@ -1,7 +1,4 @@
 import os
-import tempfile
-import glob
-import shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
@@ -14,19 +11,9 @@ from ui.page_backups import BackupsPage
 from ui.page_settings import SettingsPage
 from ui.dialogs import NewModelDialog
 
-def _cleanup_orphan_temp():
-    try:
-        temp_root = tempfile.gettempdir()
-        for path in glob.glob(os.path.join(temp_root, "_MEI*")):
-            if os.path.isdir(path):
-                shutil.rmtree(path, ignore_errors=True)
-    except Exception:
-        pass
-
 class MainWindow:
     def __init__(self, root):
         self.root = root
-        _cleanup_orphan_temp()
         
         self.root.title("DER Analyzer — Offline Paragraph Classifier")
         self.engine = ModelEngine()
@@ -63,7 +50,7 @@ class MainWindow:
             try:
                 self.engine.load_model(last_path)
                 self.status_label.config(text=f"Auto-loaded model: {os.path.basename(last_path)}")
-            except Exception as e:
+            except Exception:
                 self.status_label.config(text="Failed to auto-load last model.")
         else:
             self.status_label.config(text="Ready. Create or load a .tmodel file to begin.")
@@ -90,7 +77,6 @@ class MainWindow:
         self.stack_frame = ttk.Frame(self.container)
         self.stack_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # History removed!
         self.pages = {
             "import": ImportPage(self.stack_frame, self),
             "review": ReviewPage(self.stack_frame, self),
