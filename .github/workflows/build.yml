@@ -23,7 +23,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller DER_Analyzer.spec
+          pyinstaller --noconfirm --onefile --windowed --name DER_Analyzer --collect-all docx main.py
             
       - name: Upload artifact
         uses: actions/upload-artifact@v4
